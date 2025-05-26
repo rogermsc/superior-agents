@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { SwapModule } from './swap/swap.module';
-import { AddressesModule } from './addresses/addresses.module';
-import { LoggerModuleInstance } from './logger.instance';
 import { GlobalModule } from './global/global.module';
+import { SignersModule } from './signers/signers.module';
+import { SwapProvidersModule } from './swap-providers/swap-providers.module';
+import { AddressesModule } from './addresses/addresses.module';
 import { TransferModule } from './transfer/transfer.module';
 
 @Module({
@@ -11,10 +12,11 @@ import { TransferModule } from './transfer/transfer.module';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    ...LoggerModuleInstance(),
-    SwapModule,
-    AddressesModule,
     GlobalModule,
+    SignersModule,
+    SwapModule,
+    SwapProvidersModule,
+    AddressesModule,
     TransferModule,
   ],
 })

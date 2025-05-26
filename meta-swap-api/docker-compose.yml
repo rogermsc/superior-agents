@@ -1,13 +1,21 @@
+version: '3.8'
+
 services:
   meta-swap-api:
-    image: superioragents/meta-swap-api
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "${TRADE_API_PORT:-9009}:${TRADE_API_PORT:-9009}"
-
+      - "9009:9009"
+    volumes:
+      - .:/app
+      - /app/node_modules
     env_file:
       - .env
-
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9009/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

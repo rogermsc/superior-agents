@@ -6,4 +6,4 @@ import { ConfigModule } from '@nestjs/config';
   providers: [],
   exports: [],
 })
-export class GlobalModule {}
+export class ErrorsModule {}

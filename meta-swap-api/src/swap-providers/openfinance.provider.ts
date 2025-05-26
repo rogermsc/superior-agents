@@ -1,142 +1,95 @@
-import { BigNumber } from "bignumber.js";
-import axios from "axios";
-import {
-	ChainId,
-	type ISwapProvider,
-	type SwapParams,
-	type SwapQuote,
-	SwapResult,
-	type TokenInfo,
-	type UnsignedSwapTransaction,
-} from "../swap/interfaces/swap.interface";
-import { BaseSwapProvider } from "./base-swap.provider";
-import { AVAILABLE_PROVIDERS } from "./constants";
-import { Inject, Logger } from "@nestjs/common";
-import { EthService } from "../signers/eth.service";
+import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import axios from 'axios';
+import { logger } from '../logger.instance';
 
-export class OpenOceanProvider
-	extends BaseSwapProvider
-	implements ISwapProvider
-{
-	private readonly logger = new Logger(OpenOceanProvider.name);
-
-	readonly supportedChains = [ChainId.ETHEREUM];
-
-	// https://docs.openocean.finance/dev/developer-resources/supported-chains
-	private readonly chainIdChainCodeMap: { [key in ChainId]?: string } = {
-		[ChainId.ETHEREUM]: "eth",
-	};
-
-	private readonly baseUrl = "https://open-api.openocean.finance/v4";
-
-	constructor(
-		@Inject(EthService)
-		private etherService: EthService,
-	) {
-		super(AVAILABLE_PROVIDERS.OPENOCEAN);
-	}
-
-	async isInit(): Promise<boolean> {
-		return true;
-	}
-
-	async isSwapSupported(
-		fromToken: TokenInfo,
-		toToken: TokenInfo,
-	): Promise<boolean> {
-		return this.validateChainId(fromToken, toToken);
-	}
-
-	async getSwapQuote(params: SwapParams): Promise<SwapQuote> {
-		this.validateSwapParams(params);
-
-		const chainCode = this.chainIdChainCodeMap[params.fromToken.chainId];
-		if (!chainCode) {
-			throw new Error(`Unsupported chain ID: ${params.fromToken.chainId}`);
-		}
-
-		try {
-			const swapParams = {
-				chain: chainCode,
-				inTokenAddress: params.fromToken.address,
-				outTokenAddress: params.toToken.address,
-				amount: new BigNumber(
-					await this.etherService.scaleAmountToHumanable({
-						scaledAmount: params.amount.toString(),
-						tokenAddress: params.fromToken.address,
-						chain: params.fromToken.chainId,
-					}),
-				).toString(10),
-				slippage: params.slippageTolerance,
-			};
-
-			this.logger.log("Attempting to get swap quote", { params: swapParams });
-
-			const response = await axios.get(`${this.baseUrl}/${chainCode}/quote`, {
-				params: swapParams,
-			});
-
-			this.logger.log("Response from OpenOcean", { response: response.data });
-
-			if (response.status !== 200) {
-				this.logger.warn(response);
-				throw new Error("Failed to get swap quote");
-			}
-
-			// Somehow failed quote still return 200
-			if (!response?.data?.["inAmount"]) {
-				throw new Error("Invalid response: inAmount not present");
-			}
-
-			const { data } = response.data; // API v4 wraps response in data object
-
-			return {
-				inputAmount: new BigNumber(data.inAmount),
-				outputAmount: new BigNumber(data.outAmount),
-				expectedPrice: new BigNumber(data.outAmount).dividedBy(
-					new BigNumber(data.inAmount),
-				),
-				fee: new BigNumber(data.save || 0).negated(), // Save is returned as a negative value
-				estimatedGas: new BigNumber(data.estimatedGas),
-			};
-		} catch (error) {
-			// @ts-expect-error
-			throw new Error(`Failed to get swap quote: ${error.message}`);
-		}
-	}
-
-	async getUnsignedTransaction(
-		params: SwapParams,
-	): Promise<UnsignedSwapTransaction> {
-		this.validateSwapParams(params);
-
-		const chainCode = this.chainIdChainCodeMap[params.fromToken.chainId];
-		if (!chainCode) {
-			throw new Error(`Unsupported chain ID: ${params.fromToken.chainId}`);
-		}
-
-		try {
-			const response = await axios.get(`${this.baseUrl}/${chainCode}/swap`, {
-				params: {
-					inTokenAddress: params.fromToken.address,
-					outTokenAddress: params.toToken.address,
-					amount: params.amount.toString(),
-					from: params.recipient,
-					slippage: params.slippageTolerance,
-					gasPrice: "5", // Default gas price, can be made configurable
-					deadline: params.deadline || Math.floor(Date.now() / 1000) + 1200, // 20 minutes from now if not specified
-				},
-			});
-
-			const { data } = response;
-			return {
-				data: data.data,
-				to: data.to,
-				value: data.value || "0",
-			};
-		} catch (error) {
-			// @ts-expect-error
-			throw new Error(`Failed to execute swap: ${error.message}`);
-		}
-	}
+@Injectable()
+export class OpenFinanceProvider {
+  private readonly apiUrl = 'https://api.openfinance.io/v1';
+  
+  constructor(private configService: ConfigService) {}
+  
+  /**
+   * Gets the provider name
+   * @returns The provider name
+   */
+  getName(): string {
+    return 'openfinance';
+  }
+  
+  /**
+   * Gets a quote for a token swap
+   * @param params The quote parameters
+   * @returns The quote result
+   */
+  async getQuote(params: any): Promise<any> {
+    try {
+      const apiKey = this.configService.get<string>('OPENFINANCE_API_KEY');
+      
+      const response = await axios.get(`${this.apiUrl}/price`, {
+        params: {
+          baseToken: params.fromToken,
+          quoteToken: params.toToken,
+          amount: params.amount,
+        },
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Accept': 'application/json',
+        },
+      });
+      
+      return {
+        rate: response.data.price,
+        estimatedGas: response.data.estimatedGas,
+        estimatedFee: '0.0045', // Simplified for example
+      };
+    } catch (error) {
+      logger.error(`Error getting quote from OpenFinance: ${error.message}`, error.stack, 'OpenFinanceProvider');
+      throw new Error(`Failed to get quote from OpenFinance: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Executes a token swap
+   * @param params The swap parameters
+   * @returns The swap result
+   */
+  async executeSwap(params: any): Promise<any> {
+    try {
+      const apiKey = this.configService.get<string>('OPENFINANCE_API_KEY');
+      
+      // Get swap data
+      const swapResponse = await axios.post(`${this.apiUrl}/trade`, {
+        baseToken: params.fromToken,
+        quoteToken: params.toToken,
+        amount: params.amount,
+        slippage: params.slippage,
+        walletAddress: params.signer.getAddress(),
+      }, {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      // Sign and send transaction
+      const txHash = await params.signer.sendTransaction({
+        to: swapResponse.data.to,
+        data: swapResponse.data.data,
+        value: swapResponse.data.value,
+        gasLimit: swapResponse.data.gasLimit,
+      });
+      
+      return {
+        txHash,
+        fromAmount: params.amount,
+        toAmount: swapResponse.data.expectedOutput,
+        executionPrice: swapResponse.data.executionPrice,
+      };
+    } catch (error) {
+      logger.error(`Error executing swap with OpenFinance: ${error.message}`, error.stack, 'OpenFinanceProvider');
+      throw new Error(`Failed to execute swap with OpenFinance: ${error.message}`);
+    }
+  }
 }

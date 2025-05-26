@@ -1,99 +1,52 @@
-import {
-	Controller,
-	Get,
-	Inject,
-	Headers,
-	Logger,
-	Post,
-	Body,
-	HttpException,
-} from "@nestjs/common";
-import { ApiTags, ApiOperation, ApiResponse, ApiHeader } from "@nestjs/swagger";
-import { EthService } from "../signers/eth.service";
-import {
-	type CreateOrImportWalletDto,
-	CreateOrImportWalletResponseDto,
-} from "./dto/addresses";
-import { SolanaService } from "../signers/sol.service";
+import { Controller, Get, Param, Query, ValidationPipe } from '@nestjs/common';
+import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { AddressesService } from './addresses.service';
 
-@ApiTags("addresses")
-@Controller("addresses")
-@ApiHeader({
-	name: "x-superior-agent-id",
-	required: true,
-	description: "Agent ID",
-	examples: { default: { value: "default_trading" } },
-})
+@ApiTags('addresses')
+@Controller('addresses')
 export class AddressesController {
-	private readonly logger = new Logger(AddressesController.name);
-	constructor(
-		@Inject(EthService)
-		private readonly ethService: EthService,
-		@Inject(SolanaService)
-		private readonly solService: SolanaService,
-	) {}
+  constructor(private readonly addressesService: AddressesService) {}
 
-	async _resolveAddress(agentId: string) {
-		const [evmResult, solanaResult] = await Promise.allSettled([
-			this.ethService.getWallet(agentId),
-			this.solService.getWallet(agentId),
-		]);
+  @Get('common/:chain/:symbol')
+  @ApiOperation({ summary: 'Get common token address' })
+  @ApiParam({ name: 'chain', description: 'Blockchain network (eth, solana)', example: 'eth' })
+  @ApiParam({ name: 'symbol', description: 'Token symbol', example: 'USDC' })
+  @ApiResponse({ status: 200, description: 'Token address' })
+  getCommonTokenAddress(
+    @Param('chain') chain: string,
+    @Param('symbol') symbol: string,
+  ): { address: string } {
+    const address = this.addressesService.getCommonTokenAddress(chain, symbol);
+    return { address };
+  }
 
-		return {
-			evm:
-				evmResult.status === "fulfilled"
-					? evmResult.value.address
-					: "NOT IMPORTED/CREATED",
-			sol:
-				solanaResult.status === "fulfilled"
-					? solanaResult.value.publicKey.toBase58()
-					: "NOT IMPORTED/CREATED",
-		};
-	}
+  @Get('validate/:chain')
+  @ApiOperation({ summary: 'Validate address for a specific chain' })
+  @ApiParam({ name: 'chain', description: 'Blockchain network (eth, solana)', example: 'eth' })
+  @ApiQuery({ name: 'address', description: 'Address to validate', example: '0x1234...' })
+  @ApiResponse({ status: 200, description: 'Address validation result' })
+  validateAddress(
+    @Param('chain') chain: string,
+    @Query('address') address: string,
+  ): { isValid: boolean } {
+    const isValid = this.addressesService.isValidAddress(chain, address);
+    return { isValid };
+  }
 
-	@ApiOperation({
-		summary: "Get wallet addresses",
-		description: "Retrieves the EVM and Solana wallet addresses of the agent",
-	})
-	@ApiResponse({
-		status: 200,
-		description: "Returns the EVM and Solana addresses",
-		schema: {
-			properties: {
-				evm: { type: "string", example: "0x1234..." },
-				sol: { type: "string", example: "ABC123..." },
-			},
-		},
-	})
-	@Get()
-	async findMe(@Headers() headers: Record<string, string>) {
-		const agentId = headers["x-superior-agent-id"];
-		if (!agentId) {
-			throw new HttpException("Missing agent ID", 400);
-		}
+  @Get('common/:chain')
+  @ApiOperation({ summary: 'Get all common tokens for a specific chain' })
+  @ApiParam({ name: 'chain', description: 'Blockchain network (eth, solana)', example: 'eth' })
+  @ApiResponse({ status: 200, description: 'List of common tokens' })
+  getAllCommonTokens(@Param('chain') chain: string): Record<string, string> {
+    return this.addressesService.getAllCommonTokens(chain);
+  }
 
-		this.logger.log(`Fetching addresses for agent ${agentId}`);
-		return this._resolveAddress(agentId);
-	}
-
-	@ApiOperation({ summary: "Generate or import wallet for agent" })
-	@ApiResponse({ status: 200, type: CreateOrImportWalletResponseDto })
-	@Post()
-	async createOrImport(
-		@Headers() headers: Record<string, string>,
-		@Body() request: CreateOrImportWalletDto,
-	) {
-		const agentId = headers["x-superior-agent-id"];
-		if (!agentId) {
-			throw new HttpException("Missing agent ID", 400);
-		}
-
-		if (request.overwrite) {
-			await this.ethService.createOrImport(agentId, request.privateKey, false);
-		} else {
-			await this.ethService.createOrImport(agentId, request.privateKey, true);
-		}
-
-		return this._resolveAddress(agentId);
-	}
+  @Get('wrapped/:chain')
+  @ApiOperation({ summary: 'Get native wrapped token for a specific chain' })
+  @ApiParam({ name: 'chain', description: 'Blockchain network (eth, solana)', example: 'eth' })
+  @ApiResponse({ status: 200, description: 'Wrapped token address' })
+  getNativeWrappedToken(@Param('chain') chain: string): { address: string } {
+    const address = this.addressesService.getNativeWrappedToken(chain);
+    return { address };
+  }
 }

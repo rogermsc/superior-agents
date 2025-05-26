@@ -1,9 +1,11 @@
-import { Module } from "@nestjs/common";
-import { EthService } from "./eth.service";
-import { SolanaService } from "./sol.service";
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { EthereumSigner } from './ethereum.signer';
+import { SolanaSigner } from './solana.signer';
 
 @Module({
-	providers: [EthService, SolanaService],
-	exports: [EthService, SolanaService],
+  imports: [ConfigModule],
+  providers: [EthereumSigner, SolanaSigner],
+  exports: [EthereumSigner, SolanaSigner],
 })
 export class SignersModule {}

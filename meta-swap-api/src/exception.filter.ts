@@ -1,76 +1,48 @@
-// https://docs.nestjs.com/exception-filters#catch-everything
-import {
-	type ExceptionFilter,
-	Catch,
-	type ArgumentsHost,
-	HttpException,
-	HttpStatus,
-	type LoggerService,
-	Logger,
-} from "@nestjs/common";
-import type { HttpAdapterHost } from "@nestjs/core";
-
-function hasReponse(exception: HttpException) {
-	try {
-		exception.getResponse();
-		return true;
-	} catch (_err) {
-		return false;
-	}
-}
+import { ExceptionFilter, Catch, ArgumentsHost, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import { Request, Response } from 'express';
+import { logger } from './logger.instance';
 
 @Catch()
-export class CatchEverythingFilter implements ExceptionFilter {
-	constructor(
-		private readonly httpAdapterHost: HttpAdapterHost,
-		private readonly logger: LoggerService,
-	) {}
-
-	catch(exception: unknown, host: ArgumentsHost): void {
-		// In certain situations `httpAdapter` might not be available in the
-		// constructor method, thus we should resolve it here.
-		const { httpAdapter } = this.httpAdapterHost;
-
-		const ctx = host.switchToHttp();
-
-		const httpStatus =
-			exception instanceof HttpException
-				? exception.getStatus()
-				: HttpStatus.INTERNAL_SERVER_ERROR;
-
-		let responseBody = {
-			statusCode: httpStatus,
-			error: "",
-			message: "",
-			cause: "",
-		};
-
-		// TODO improve this later
-		this.logger.error(exception);
-		if (exception instanceof HttpException) {
-			if (hasReponse(exception)) {
-				// @ts-expect-error
-				responseBody = exception.getResponse();
-			} else {
-				responseBody.error = exception.name;
-				responseBody.message = exception.message;
-				if (exception.cause instanceof Error) {
-					responseBody.cause = JSON.stringify(exception.cause.stack);
-				} else {
-					responseBody.cause = JSON.stringify(exception.cause);
-				}
-			}
-		} else if (exception instanceof Error) {
-			responseBody["error"] = exception.name;
-			responseBody["message"] = exception.message;
-			responseBody["cause"] = JSON.stringify(exception.stack);
-		} else {
-			this.logger.error(exception);
-			responseBody["error"] = "UNKNOWN";
-			responseBody["message"] = "UNKNOWN";
-			responseBody["cause"] = "server currently not handling this";
-		}
-
-		httpAdapter.reply(ctx.getResponse(), responseBody, httpStatus);
-	}
+export class AllExceptionsFilter implements ExceptionFilter {
+  catch(exception: unknown, host: ArgumentsHost) {
+    const ctx = host.switchToHttp();
+    const response = ctx.getResponse<Response>();
+    const request = ctx.getRequest<Request>();
+    
+    let status = HttpStatus.INTERNAL_SERVER_ERROR;
+    let message = 'Internal server error';
+    let error = 'Unknown error';
+    
+    if (exception instanceof HttpException) {
+      status = exception.getStatus();
+      const exceptionResponse = exception.getResponse();
+      
+      if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
+        message = (exceptionResponse as any).message || message;
+        error = (exceptionResponse as any).error || error;
+      } else if (typeof exceptionResponse === 'string') {
+        message = exceptionResponse;
+      }
+    } else if (exception instanceof Error) {
+      message = exception.message;
+      error = exception.name;
+    }
+    
+    const errorResponse = {
+      statusCode: status,
+      timestamp: new Date().toISOString(),
+      path: request.url,
+      method: request.method,
+      error: error,
+      message: message,
+    };
+    
+    logger.error(
+      `${request.method} ${request.url} ${status} - ${message}`,
+      exception instanceof Error ? exception.stack : '',
+      'ExceptionFilter',
+    );
+    
+    response.status(status).json(errorResponse);
+  }
 }

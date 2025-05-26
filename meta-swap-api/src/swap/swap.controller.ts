@@ -1,108 +1,38 @@
-import {
-	Controller,
-	Get,
-	Post,
-	Body,
-	Param,
-	Injectable,
-	Logger,
-	HttpException,
-	Inject,
-} from "@nestjs/common";
-import { ApiTags, ApiOperation, ApiResponse, ApiHeader } from "@nestjs/swagger";
-import { SwapService } from "./swap.service";
-import {
-	type SwapRequestDto,
-	SwapResponseDto,
-	type QuoteRequestDto,
-	QuoteResponseDto,
-} from "./dto/swap.dto";
-import { NoValidQuote } from "../errors/error.list";
-import { Headers } from "@nestjs/common";
+import { Controller, Post, Get, Body, Query, ValidationPipe } from '@nestjs/common';
+import { ApiOperation, ApiBody, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { SwapService } from './swap.service';
+import { SwapDto, QuoteDto, SwapResponse, QuoteResponse } from './swap.dto';
 
-@ApiTags("swap")
-@ApiHeader({
-	name: "x-superior-agent-id",
-	required: true,
-	description: "Agent ID",
-	examples: { default: { value: "default_trading" } },
-})
-@ApiHeader({
-	name: "x-superior-session-id",
-	required: false,
-	description: "Session ID",
-})
-@Controller("")
-@Injectable()
+@ApiTags('swap')
+@Controller('swap')
 export class SwapController {
-	private readonly logger = new Logger(SwapController.name);
-	constructor(
-		@Inject(SwapService)
-		private readonly swapService: SwapService
-	) {}
+  constructor(private readonly swapService: SwapService) {}
 
-	@Post("swap")
-	@ApiOperation({ summary: "Swap tokens using best quote API" })
-	@ApiResponse({ status: 200, type: SwapResponseDto })
-	async swapTokens(
-		@Headers() headers: Record<string, string>,
-		@Body() request: SwapRequestDto,
-	): Promise<SwapResponseDto> {
-		const agentId = headers["x-superior-agent-id"];
-		if (!agentId) {
-			throw new HttpException("Missing agent ID", 400);
-		}
-		const agentSessionId = headers["x-superior-session-id"];
-		this.logger.log(
-			request,
-			`Swap request from agent ${agentId} session ${agentSessionId}`,
-		);
-		return this.swapService.swapTokens(request, agentId);
-	}
+  @Post()
+  @ApiOperation({ summary: 'Execute a token swap' })
+  @ApiBody({ type: SwapDto })
+  @ApiResponse({ status: 200, description: 'Swap executed successfully', type: SwapResponse })
+  async executeSwap(@Body() swapDto: SwapDto): Promise<SwapResponse> {
+    return this.swapService.executeSwap(swapDto);
+  }
 
-	@Post("swap/:provider")
-	@ApiOperation({ summary: "Swap tokens using a specific provider API" })
-	@ApiResponse({ status: 200, type: SwapResponseDto })
-	async swapTokensByProvider(
-		@Headers() headers: Record<string, string>,
-		@Param("provider") provider: string,
-		@Body() request: SwapRequestDto,
-	): Promise<SwapResponseDto> {
-		const agentId = headers["x-superior-agent-id"];
-		if (!agentId) {
-			throw new HttpException("Missing agent ID", 400);
-		}
-		const agentSessionId = headers["x-superior-session-id"];
-		this.logger.log(
-			request,
-			`Swap request from agent ${agentId} session ${agentSessionId}`,
-		);
-		return this.swapService.swapTokensByProvider(provider, request);
-	}
+  @Get('quote')
+  @ApiOperation({ summary: 'Get quotes from all available providers' })
+  @ApiQuery({ name: 'fromToken', description: 'Source token address' })
+  @ApiQuery({ name: 'toToken', description: 'Destination token address' })
+  @ApiQuery({ name: 'amount', description: 'Amount to swap (in wei/lamports)' })
+  @ApiQuery({ name: 'chain', description: 'Blockchain network (eth, solana)' })
+  @ApiResponse({ status: 200, description: 'Quotes retrieved successfully', type: QuoteResponse })
+  async getQuotes(
+    @Query(new ValidationPipe({ transform: true })) quoteDto: QuoteDto,
+  ): Promise<QuoteResponse> {
+    return this.swapService.getQuotes(quoteDto);
+  }
 
-	@Post("quote")
-	@ApiOperation({ summary: "Get quote for token swap" })
-	@ApiResponse({ status: 200, type: QuoteResponseDto })
-	@ApiResponse({ status: NoValidQuote.status, description: NoValidQuote.desc })
-	async getQuote(@Body() request: QuoteRequestDto): Promise<QuoteResponseDto> {
-		return this.swapService.getQuote(request);
-	}
-
-	@Post("quote/:provider")
-	@ApiOperation({ summary: "Get quote for token swap" })
-	@ApiResponse({ status: 200, type: QuoteResponseDto })
-	@ApiResponse({ status: NoValidQuote.status, description: NoValidQuote.desc })
-	async getQuoteByProvider(
-		@Param("provider") provider: string,
-		@Body() request: QuoteRequestDto,
-	): Promise<QuoteResponseDto> {
-		return this.swapService.getQuoteByProvider(provider, request);
-	}
-
-	@Get("swapProviders")
-	@ApiOperation({ summary: "Get list of available swap providers" })
-	@ApiResponse({ status: 200, description: "List of available swap providers" })
-	async getProviders() {
-		return this.swapService.getProviders();
-	}
+  @Get('health')
+  @ApiOperation({ summary: 'Health check endpoint' })
+  @ApiResponse({ status: 200, description: 'Service is healthy' })
+  healthCheck(): { status: string } {
+    return { status: 'ok' };
+  }
 }
